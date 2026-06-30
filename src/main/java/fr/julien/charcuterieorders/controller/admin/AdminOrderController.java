@@ -22,6 +22,9 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import java.io.IOException;
 import java.util.*;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @Controller
 @RequestMapping("/admin/commandes")
 @RequiredArgsConstructor
@@ -35,6 +38,8 @@ public class AdminOrderController {
     private final OrderItemRepository orderItemRepository;
     private final AdminOrderItemRepository adminOrderItemRepository;
     private final OrderService orderService;
+    private static final Logger log =
+            LoggerFactory.getLogger(AdminOrderController.class);
 
     @GetMapping
     public String index(Model model,
@@ -151,6 +156,14 @@ public class AdminOrderController {
 
     @PostMapping("/item")
     public ResponseEntity<Void> saveItem(@RequestBody OrderLineForm item) {
+
+        log.info(
+                "RECEIVED userId={} productId={} quantity={} doneQuantity={}",
+                item.getUserId(),
+                item.getProductId(),
+                item.getQuantity(),
+                item.getDoneQuantity()
+        );
 
         adminOrderItemService.saveOrUpdate(
                 item.getUserId(),

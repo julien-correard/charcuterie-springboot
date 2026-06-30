@@ -12,6 +12,9 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @Service
 @RequiredArgsConstructor
 
@@ -26,13 +29,23 @@ public class AdminOrderItemService {
         return adminOrderItemRepository.findAll();
     }
 
+    private static final Logger log =
+            LoggerFactory.getLogger(AdminOrderItemService.class);
+
+
+
     public void saveOrUpdate(Long userId, Long productId, Integer quantity, Integer doneQuantity) {
+
+        log.info("SAVE START userId={} productId={} qty={} done={}",
+                userId, productId, quantity, doneQuantity);
+
         User user = userRepository.findById(userId).orElseThrow();
         Product product = productRepository.findById(productId).orElseThrow();
+
         OrderItemId id = new OrderItemId(userId, productId);
 
         if (quantity == 0) {
-
+            log.warn("DELETE userId={} productId={}", userId, productId);
             adminOrderItemRepository.deleteById(id);
             return;
         }
@@ -40,9 +53,15 @@ public class AdminOrderItemService {
         AdminOrderItem item = adminOrderItemRepository
                 .findById(id)
                 .orElse(new AdminOrderItem(id, user, product, 0, 0));
+
+        log.info("BEFORE dbQty={} dbDone={}", item.getQuantity(), item.getDoneQuantity());
+
         item.setQuantity(quantity);
         item.setDoneQuantity(doneQuantity);
+
         adminOrderItemRepository.save(item);
+
+        log.info("END SAVE dbQty={} dbDone={}", item.getQuantity(), item.getDoneQuantity());
     }
 
     public void syncByUser(Long userId) {
