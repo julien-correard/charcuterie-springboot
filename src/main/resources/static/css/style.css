@@ -48,4 +48,17 @@ body.admin_page
     background: white;
 }
 
+.sync-badge {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    font-size: 12px;
+}
+
+.sync-cell {
+    position: relative;
+}
+
 

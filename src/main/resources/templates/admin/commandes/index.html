@@ -106,7 +106,8 @@
 
                     <td th:text="${product.name}"></td>
 
-                    <td th:each="client, cStat : ${clients}"
+                    <td class="sync-cell"
+                        th:each="client, cStat : ${clients}"
                         th:classappend="${client.inputMode == 'ORDER'
                             and (cStat.first
                             or clients[cStat.index - 1].inputMode == 'STOCK')} ? 'separator-col' : ''"
@@ -162,49 +163,244 @@
 
 <script>
 
-
     const csrfToken =
         document.querySelector('meta[name="_csrf"]').content;
 
     const csrfHeader =
         document.querySelector('meta[name="_csrf_header"]').content;
 
-    document.querySelectorAll("input[name$='doneQuantity']")
-        .forEach(input => {
 
-            input.addEventListener("change", async () => {
-                await saveDoneQuantity(input);
-            });
+    /* =========================
+       STATE CENTRAL
+    ========================= */
 
+    const state = new Map();   // key -> item
+    const dirty = new Set();   // keys à sync
+    const syncStatus = new Map(); // key -> pending/saved/error
+
+    let syncTimer = null;
+
+    document.querySelectorAll("input[name$='doneQuantity']").forEach(input => {
+
+        input.addEventListener("keydown", (e) => {
+            if (e.key === " ") {
+                e.preventDefault();
+            }
         });
 
-    async function saveDoneQuantity(input) {
+    });
+
+
+    /* =========================
+       KEY UTIL
+    ========================= */
+
+    function getKey(userId, productId) {
+        return productId + "-" + userId;
+    }
+
+
+    /* =========================
+       UI STATUS (1 badge unique)
+    ========================= */
+
+    function setStatusUI(cell, status) {
+
+        let badge = cell.querySelector(".sync-badge");
+
+        if (!badge) {
+            badge = document.createElement("span");
+            badge.className = "sync-badge";
+            cell.appendChild(badge);
+        }
+
+        badge.textContent = "";
+
+        if (status === "pending") badge.textContent = "⏳";
+        else if (status === "saved") badge.textContent = "✔";
+        else if (status === "error") badge.textContent = "❌";
+    }
+
+
+    /* =========================
+       INIT STATE FROM DOM
+    ========================= */
+
+    document.querySelectorAll("input[name$='doneQuantity']").forEach(input => {
 
         const row = input.closest("tr");
         const cell = input.closest("td");
 
-        const productId = row.querySelector("input[name$='productId']").value;
-        const userId = cell.querySelector("input[name$='userId']").value;
-        const quantity = cell.querySelector("input[name$='quantity']").value;
+        const userId = cell.querySelector("[name$='userId']").value;
+        const productId = row.querySelector("[name$='productId']").value;
 
-        const item = {
+        const key = getKey(userId, productId);
+
+        state.set(key, {
             userId,
             productId,
-            quantity,
-            doneQuantity: input.value
-        };
-
-        await fetch('/admin/commandes/item', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                [csrfHeader]: csrfToken
-            },
-            body: JSON.stringify(item)
+            quantity: cell.querySelector("[name$='quantity']").value,
+            doneQuantity: normalizeNumber(input.value)
         });
+
+        syncStatus.set(key, "idle");
+    });
+
+    function normalizeNumber(value) {
+
+        if (value === null || value === undefined) return 0;
+
+        const cleaned = String(value).trim();
+
+        if (cleaned === "") return 0;
+
+        const parsed = Number(cleaned);
+
+        if (Number.isNaN(parsed)) return 0;
+
+        return parsed;
     }
 
 
+    /* =========================
+       SAFE CELL RESOLUTION
+    ========================= */
+
+    function findCell(item) {
+
+        const inputs = document.querySelectorAll(
+            `input[name$='productId'][value='${item.productId}']`
+        );
+
+        for (const input of inputs) {
+
+            const cell = input.closest("td");
+            const userIdInput = cell.querySelector("[name$='userId']");
+
+            if (userIdInput && userIdInput.value == item.userId) {
+                return cell;
+            }
+        }
+
+        return null;
+    }
+
+
+    /* =========================
+       INPUT HANDLER
+    ========================= */
+
+    document.querySelectorAll("input[name$='doneQuantity']").forEach(input => {
+
+        input.addEventListener("input", () => {
+
+            const row = input.closest("tr");
+            const cell = input.closest("td");
+
+            const userId = cell.querySelector("[name$='userId']").value;
+            const productId = row.querySelector("[name$='productId']").value;
+
+            const key = getKey(userId, productId);
+
+            const item = state.get(key);
+            if (!item) return;
+
+            item.doneQuantity = input.value;
+
+            state.set(key, item);
+            dirty.add(key);
+
+            syncStatus.set(key, "pending");
+            setStatusUI(cell, "pending");
+
+            scheduleSync();
+        });
+
+    });
+
+
+    /* =========================
+       DEBOUNCE SYNC ENGINE
+    ========================= */
+
+    function scheduleSync() {
+
+        clearTimeout(syncTimer);
+
+        syncTimer = setTimeout(() => {
+            syncDirty();
+        }, 300);
+    }
+
+
+    /* =========================
+       BATCH SYNC
+    ========================= */
+
+    async function syncDirty() {
+
+        if (dirty.size === 0) return;
+
+        const payload = Array.from(dirty).map(key => state.get(key));
+
+        dirty.clear();
+
+        try {
+
+            await fetch('/admin/commandes/batch', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    [csrfHeader]: csrfToken
+                },
+                body: JSON.stringify(payload)
+            });
+
+            // SUCCESS UI
+            payload.forEach(item => {
+
+                const key = getKey(item.userId, item.productId);
+                syncStatus.set(key, "saved");
+
+                const cell = findCell(item);
+                if (cell) setStatusUI(cell, "saved");
+            });
+
+        } catch (e) {
+
+            console.error("SYNC FAILED", e);
+
+            payload.forEach(item => {
+
+                const key = getKey(item.userId, item.productId);
+                syncStatus.set(key, "error");
+
+                const cell = findCell(item);
+                if (cell) setStatusUI(cell, "error");
+
+                dirty.add(key);
+            });
+        }
+    }
+
+
+    /* =========================
+       BEFORE UNLOAD (backup)
+    ========================= */
+
+    window.addEventListener("beforeunload", () => {
+
+        if (dirty.size === 0) return;
+
+        const payload = Array.from(dirty).map(key => state.get(key));
+
+        navigator.sendBeacon(
+            '/admin/commandes/batch',
+            new Blob([JSON.stringify(payload)], {
+                type: 'application/json'
+            })
+        );
+    });
 
 </script>
 <footer th:replace="~{layout/base :: footer}"></footer>

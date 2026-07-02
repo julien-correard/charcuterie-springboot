@@ -174,4 +174,19 @@ public class AdminOrderController {
 
         return ResponseEntity.ok().build();
     }
+    @PostMapping("/batch")
+    public ResponseEntity<Void> batchUpdate(@RequestBody List<OrderLineForm> items) {
+
+        for (OrderLineForm item : items) {
+
+            adminOrderItemService.saveOrUpdate(
+                    item.getUserId(),
+                    item.getProductId(),
+                    item.getQuantity(),
+                    item.getDoneQuantity()
+            );
+        }
+
+        return ResponseEntity.ok().build();
+    }
 }
