@@ -120,16 +120,26 @@ public class AdminOrderController {
     @PostMapping
     public ResponseEntity<Void> store(@RequestBody List<OrderLineForm> items) {
 
-        items.forEach(System.out::println);
+        log.info("STORE BATCH RECEIVED size={}", items.size());
 
-        for (OrderLineForm item : items) {
-            adminOrderItemService.saveOrUpdate(
-                    item.getUserId(),
-                    item.getProductId(),
-                    item.getQuantity(),
-                    item.getDoneQuantity()
-            );
-        }
+        // Un seul appel batch (précharge tout, une seule transaction) au lieu
+        // d'une boucle de saveOrUpdate individuels : c'était la cause des
+        // timeouts sur les gros tableaux (plusieurs allers-retours réseau
+        // par produit, plusieurs minutes au total).
+        adminOrderItemService.saveOrUpdateBatch(items);
+
+        return ResponseEntity.ok().build();
+    }
+
+    // Endpoint attendu par le nouveau JS (debounce + sync par lot + sendBeacon
+    // au beforeunload). Il manquait : le front postait dans le vide (404),
+    // silencieusement, d'où les doneQuantity jamais enregistrées.
+    @PostMapping("/batch")
+    public ResponseEntity<Void> batch(@RequestBody List<OrderLineForm> items) {
+
+        log.info("BATCH RECEIVED size={}", items.size());
+
+        adminOrderItemService.saveOrUpdateBatch(items);
 
         return ResponseEntity.ok().build();
     }
@@ -171,21 +181,6 @@ public class AdminOrderController {
                 item.getQuantity(),
                 item.getDoneQuantity()
         );
-
-        return ResponseEntity.ok().build();
-    }
-    @PostMapping("/batch")
-    public ResponseEntity<Void> batchUpdate(@RequestBody List<OrderLineForm> items) {
-
-        for (OrderLineForm item : items) {
-
-            adminOrderItemService.saveOrUpdate(
-                    item.getUserId(),
-                    item.getProductId(),
-                    item.getQuantity(),
-                    item.getDoneQuantity()
-            );
-        }
 
         return ResponseEntity.ok().build();
     }
