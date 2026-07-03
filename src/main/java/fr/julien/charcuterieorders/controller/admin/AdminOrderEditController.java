@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Controller;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
@@ -16,6 +17,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Controller
@@ -56,6 +58,7 @@ public class AdminOrderEditController {
         return "admin/commandes/edit";
     }
 
+    @Transactional
     @PostMapping("/{id}")
     public String store(@PathVariable Long id, @RequestParam Map<String, String> formData, RedirectAttributes redirectAttributes) {
 
@@ -68,8 +71,15 @@ public class AdminOrderEditController {
                         item -> item.getProduct().getId(),
                         OrderItem::getQuantity
                 ));
-        for (Product p : user.getAccessibleProducts()) {
-            dbQuantities.putIfAbsent(p.getId(), 0);
+
+        // Map productId -> Product construite une seule fois, au lieu d'un
+        // .stream().filter().findFirst() par produit dans la boucle plus bas
+        Map<Long, Product> productsById = user.getAccessibleProducts()
+                .stream()
+                .collect(Collectors.toMap(Product::getId, Function.identity()));
+
+        for (Long productId : productsById.keySet()) {
+            dbQuantities.putIfAbsent(productId, 0);
         }
 
         Map<Long, Integer> formQuantities = new HashMap<>();
@@ -92,16 +102,10 @@ public class AdminOrderEditController {
             return "redirect:/admin/commandes";
         }
 
-        formQuantities.forEach((productId, quantity) -> {
-
-            Product product = user.getAccessibleProducts()
-                    .stream()
-                    .filter(p -> p.getId().equals(productId))
-                    .findFirst()
-                    .orElseThrow();
-
-            orderItemService.saveOrUpdate(user, product, quantity);
-        });
+        // Un seul aller-retour groupé (saveAll/deleteAllInBatch) au lieu d'un
+        // findById + save/delete par produit. C'était la cause principale
+        // des timeouts sur l'édition de commande.
+        orderItemService.saveOrUpdateBatch(user, items, productsById, formQuantities);
 
         adminOrderItemService.syncByUser(id);
 
