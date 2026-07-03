@@ -161,11 +161,19 @@ public class AdminOrderItemService {
             validIds.add(id);
 
             AdminOrderItem previous = existing.get(id);
-            int doneQuantity = (previous != null) ? previous.getDoneQuantity() : 0;
 
-            toSave.add(new AdminOrderItem(
-                    id, item.getUser(), item.getProduct(), item.getQuantity(), doneQuantity
-            ));
+            if (previous != null) {
+                // Réutiliser l'instance déjà managée par Hibernate : la muter
+                // au lieu d'en créer une nouvelle avec le même id, sinon
+                // Hibernate lève NonUniqueObjectException (2 objets Java
+                // différents pour la même clé dans la même session).
+                previous.setQuantity(item.getQuantity());
+                toSave.add(previous);
+            } else {
+                toSave.add(new AdminOrderItem(
+                        id, item.getUser(), item.getProduct(), item.getQuantity(), 0
+                ));
+            }
         }
 
         adminOrderItemRepository.saveAll(toSave);
