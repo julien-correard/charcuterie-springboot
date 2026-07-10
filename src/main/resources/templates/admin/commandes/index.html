@@ -94,8 +94,11 @@
 
                     </th>
 
+                    <th>À faire</th>
+
                 </tr>
                 </thead>
+
 
                 <tbody>
 
@@ -111,7 +114,8 @@
                         th:classappend="${client.inputMode == 'ORDER'
                             and (cStat.first
                             or clients[cStat.index - 1].inputMode == 'STOCK')} ? 'separator-col' : ''"
-                        th:with="i=${pStat.index * clients.size() + cStat.index}">
+                        th:with="i=${pStat.index * clients.size() + cStat.index}"
+                        th:attr="data-mode=${client.inputMode}">
                         <!-- ========================= -->
                         <!-- COMMON DATA (TOUJOURS) -->
                         <!-- ========================= -->
@@ -139,7 +143,7 @@
 
                             <input th:if="${quantities[client.id] != null
                                     and quantities[client.id][product.id] != 0}"
-                                    type="number"
+                                   type="number"
                                    min="0"
                                    class="form-control form-control-sm text-end ms-auto"
                                    style="width:65px;"
@@ -148,6 +152,10 @@
 
                         </div>
 
+                    </td>
+
+                    <td class="todo-cell text-center fw-bold"
+                        th:id="'todo-' + ${product.id}">
                     </td>
 
                 </tr>
@@ -235,16 +243,25 @@
         const productId = row.querySelector("[name$='productId']").value;
 
         const key = getKey(userId, productId);
+        const mode = cell.dataset.mode;
 
         state.set(key, {
             userId,
             productId,
+            mode,
             quantity: cell.querySelector("[name$='quantity']").value,
             doneQuantity: normalizeNumber(input.value)
         });
 
         syncStatus.set(key, "idle");
     });
+
+    // Calcul initial de la colonne "à faire" pour chaque produit
+    (function initTodoColumn() {
+        const productIds = new Set();
+        state.forEach(item => productIds.add(item.productId));
+        productIds.forEach(pid => updateTodoCell(pid));
+    })();
 
     function normalizeNumber(value) {
 
@@ -259,6 +276,42 @@
         if (Number.isNaN(parsed)) return 0;
 
         return parsed;
+    }
+
+
+    /* =========================
+       COLONNE "À FAIRE"
+       (uniquement clients en mode COMMANDE)
+    ========================= */
+
+    function computeTodoForProduct(productId) {
+
+        const pid = String(productId);
+        let total = 0;
+
+        state.forEach(item => {
+
+            if (String(item.productId) !== pid) return;
+            if (item.mode !== 'ORDER') return;
+
+            const qty = normalizeNumber(item.quantity);
+            const done = normalizeNumber(item.doneQuantity);
+            const remaining = qty - done;
+
+            if (remaining > 0) total += remaining;
+        });
+
+        return total;
+    }
+
+    function updateTodoCell(productId) {
+
+        const cell = document.getElementById('todo-' + productId);
+        if (!cell) return;
+
+        const total = computeTodoForProduct(productId);
+
+        cell.textContent = total > 0 ? total : "";
     }
 
 
@@ -313,6 +366,8 @@
             syncStatus.set(key, "pending");
             setStatusUI(cell, "pending");
 
+            updateTodoCell(productId);
+
             scheduleSync();
         });
 
@@ -364,6 +419,8 @@
 
                 const cell = findCell(item);
                 if (cell) setStatusUI(cell, "saved");
+
+                updateTodoCell(item.productId);
             });
 
         } catch (e) {
